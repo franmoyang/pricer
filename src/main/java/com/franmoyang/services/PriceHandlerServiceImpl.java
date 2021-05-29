@@ -70,7 +70,7 @@ public class PriceHandlerServiceImpl implements PriceHandlerService, Runnable {
 				// Get the message.
 				if(logger.isInfoEnabled())
 					logger.info("PriceHandlerServiceImpl.run: Get the message.");
-				addPricesFromMessage (_queue.poll());
+				addPricesFromMessage (_queue.take());
 			}
 		}
 	}
