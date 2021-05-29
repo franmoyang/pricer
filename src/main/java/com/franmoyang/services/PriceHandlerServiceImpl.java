@@ -4,8 +4,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.log4j.Logger;
@@ -22,7 +23,7 @@ public class PriceHandlerServiceImpl implements PriceHandlerService, Runnable {
 	/**
 	 * Concurrent Queue for prices.
 	 */
-	protected ConcurrentLinkedQueue<String> _queue = new ConcurrentLinkedQueue<String>();
+	protected BlockingQueue<String> queue = new LinkedBlockingDeque<String>();
 
 	/**
 	 * Thread for events.
@@ -66,11 +67,11 @@ public class PriceHandlerServiceImpl implements PriceHandlerService, Runnable {
 		while(running.get()) {
 			if(logger.isDebugEnabled())
 				logger.debug("PriceHandlerServiceImpl.run: Thread running...");
-			if (!_queue.isEmpty()){
-				// Get the message.
-				if(logger.isInfoEnabled())
-					logger.info("PriceHandlerServiceImpl.run: Get the message.");
-				addPricesFromMessage (_queue.poll());
+			// If it is empty, it blocks.
+			try {
+				addPricesFromMessage (queue.take());
+			} catch (InterruptedException e) {
+				logger.error("PriceHandlerServiceImpl.run " + e.toString());
 			}
 		}
 	}
@@ -81,8 +82,8 @@ public class PriceHandlerServiceImpl implements PriceHandlerService, Runnable {
 			String[] lines = message.split(NEWLINE);
 			String[] line;
 			Price price;
-			long _id;
-			String currency, _timestamp;
+			long id;
+			String currency, timestamp;
 			BigDecimal bid, ask;
 
 			BigDecimal bidMultiplier = BigDecimal.valueOf(0.999);
@@ -93,7 +94,7 @@ public class PriceHandlerServiceImpl implements PriceHandlerService, Runnable {
 				if(logger.isInfoEnabled())
 					logger.info("PriceHandlerServiceImpl.addPricesFromMessage: Reading line: " + line);
 				try{
-					_id = Long.valueOf(line[Price._ID]);
+					id = Long.valueOf(line[Price._ID]);
 					currency = line[Price.CURRENCY];
 					// Read the bid/ask as BigDecimal.
 					bid = BigDecimal.valueOf(Double.valueOf(line[Price.BID]));
@@ -102,8 +103,8 @@ public class PriceHandlerServiceImpl implements PriceHandlerService, Runnable {
 					// Same for ask one.
 					ask = BigDecimal.valueOf(Double.valueOf(line[Price.ASK]));
 					ask = ask.multiply(askMultiplier).setScale(Price.DECIMAL_PRECISION, RoundingMode.HALF_EVEN);
-					_timestamp = line[Price._TIMESTAMP];
-					price = new Price(_id, currency, bid, ask, _timestamp);
+					timestamp = line[Price._TIMESTAMP];
+					price = new Price(id, currency, bid, ask, timestamp);
 					// Insert the last price.
 					lastPrices.put(currency, price);
 				} catch(Exception e){
@@ -118,22 +119,16 @@ public class PriceHandlerServiceImpl implements PriceHandlerService, Runnable {
 
 	@Override
 	public void addMessage (String message) {
-		_queue.add(message);
+		queue.add(message);
 	}
 
 	@Override
 	public Price getPrice(String currency) {
-		while(!_queue.isEmpty()) {
-			addPricesFromMessage (_queue.poll());
-		}
 		return lastPrices.get(currency);
 	}
 
 	@Override
 	public ArrayList<Price> getAllPrices() {
-		while(!_queue.isEmpty()) {
-			addPricesFromMessage (_queue.poll());
-		}
 		Collection<Price> allPrices = lastPrices.values();
 		return new ArrayList<Price>(allPrices);
 	}
